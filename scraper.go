@@ -1,0 +1,167 @@
+package main
+
+import (
+	"crypto/tls"
+	"log/slog"
+	"net"
+	"net/http"
+	"scraperbcv/models"
+	"strings"
+	"time"
+
+	"github.com/gocolly/colly/v2"
+	"github.com/shopspring/decimal"
+	"golang.org/x/sync/errgroup"
+)
+
+func scrapeCoins[T any](url string, searchString string, scraper func(*colly.HTMLElement) T) ([]T, error) {
+	c := colly.NewCollector(
+		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+		colly.AllowedDomains("www.banrep.gov.co", "banrep.gov.co", "bcv.org.ve", "www.bcv.org.ve"),
+	)
+
+	var coins []T
+
+	c.SetRequestTimeout(30 * time.Second)
+
+	c.WithTransport(&http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		IdleConnTimeout: 90 * time.Second,
+	})
+
+	c.OnRequest(func(r *colly.Request) {
+		r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+		r.Headers.Set("Accept-Language", "es-ES,es;q=0.9,en;q=0.8")
+		r.Headers.Set("Referer", "https://www.google.com/")
+		r.Headers.Set("Sec-Fetch-Dest", "document")
+		r.Headers.Set("Sec-Fetch-Mode", "navigate")
+		r.Headers.Set("Sec-Fetch-Site", "cross-site")
+		r.Headers.Set("Upgrade-Insecure-Requests", "1")
+	})
+
+	c.OnResponse(func(r *colly.Response) {
+		slog.Info("visited", "status", r.StatusCode, "url", r.Request.URL.String())
+	})
+
+	c.OnError(func(r *colly.Response, err error) {
+		if r != nil && r.Request != nil {
+			slog.Error("request error", "status", r.StatusCode, "url", r.Request.URL.String(), "error", err)
+		} else {
+			slog.Error("request error", "error", err)
+		}
+	})
+
+	c.OnHTML(searchString, func(e *colly.HTMLElement) {
+		coins = append(coins, scraper(e))
+	})
+
+	err := c.Visit(url)
+	if err != nil {
+		slog.Error("failed to visit URL", "error", err)
+		return nil, err
+	}
+
+	return coins, nil
+}
+func scrapeTasaCambio() (*models.TasaCambio, error) {
+	g := new(errgroup.Group)
+
+	var pesos []models.Coin
+	g.Go(func() error {
+		var err error
+		pesos, err = scrapeCoins("https://www.banrep.gov.co/es", ".indicator--trm", func(e *colly.HTMLElement) models.Coin {
+			price := e.ChildAttr("#trm", "value")
+			dateRaw := strings.TrimSpace(e.ChildText(".indicator__comment"))
+
+			tm, err := time.Parse("02/01/2006", dateRaw)
+
+			if err != nil {
+				slog.Error("Error parsing date", "error", err, "raw_date", dateRaw)
+				tm = time.Now()
+			}
+
+			date := time.Date(
+				tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, time.UTC,
+			)
+
+			return models.Coin{
+				Moneda:      "Pesos",
+				Valor:       decimal.RequireFromString(price),
+				Fecha:       time.Now(),
+				Simbolo:     "$",
+				FechaValida: date,
+			}
+		})
+		return err
+	})
+
+	var bcvCoins []models.Coin
+	g.Go(func() error {
+		var err error
+		bcvCoins, err = scrapeCoins("https://bcv.org.ve/", "#dolar, #euro", func(e *colly.HTMLElement) models.Coin {
+			name := strings.TrimSpace(e.ChildText("span"))
+			priceRaw := strings.TrimSpace(e.ChildText(".centrado strong"))
+
+			priceClean := strings.ReplaceAll(priceRaw, ".", "")
+			priceClean = strings.ReplaceAll(priceClean, ",", ".")
+			priceClean = strings.TrimSpace(priceClean)
+			var fechaValida time.Time
+
+			fechaRaw := e.DOM.Closest(".views-row").Find(".date-display-single").AttrOr("content", "")
+
+			if fechaRaw != "" {
+				if t, err := time.Parse(time.RFC3339, fechaRaw); err == nil {
+					fechaValida = t
+				}
+			}
+
+			if fechaValida.IsZero() {
+				slog.Warn("Could not get date from content, using current date")
+				fechaValida = time.Now()
+			}
+
+			moneda := "Dolar"
+			if strings.Contains(strings.ToLower(name), "eur") {
+				moneda = "Euro"
+			}
+
+			return models.Coin{
+				Moneda:      moneda,
+				Valor:       decimal.RequireFromString(priceClean),
+				Fecha:       time.Now(),
+				Simbolo:     "",
+				FechaValida: fechaValida,
+			}
+		})
+		return err
+	})
+
+	if waitErr := g.Wait(); waitErr != nil {
+		slog.Error("Error scraping pesos", "error", waitErr)
+	}
+
+	var tasa models.TasaCambio
+
+	for _, c := range bcvCoins {
+		switch strings.ToLower(c.Moneda) {
+		case "dolar":
+			tasa.Dolar = c
+			tasa.Dolar.Simbolo = "$"
+		case "euro":
+			tasa.Euro = c
+			tasa.Euro.Simbolo = "€"
+		}
+	}
+
+	if len(pesos) > 0 {
+		c := pesos[0]
+		tasa.Pesos = c
+		tasa.Pesos.Simbolo = "$"
+	}
+	return &tasa, nil
+}
