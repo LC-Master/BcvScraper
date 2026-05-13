@@ -8,11 +8,11 @@ import (
 
 type Coin struct {
 	ID          uint            `gorm:"primaryKey;autoIncrement"`
-	Moneda      string          `gorm:"column:Moneda;type:varchar(64)" json:"moneda"`
-	Valor       decimal.Decimal `gorm:"column:Valor;type:decimal(18,4)" json:"valor"`
-	Fecha       time.Time       `gorm:"column:Fecha;type:datetime" json:"fecha"`
-	Simbolo     string          `gorm:"column:Simbolo;type:varchar(8)" json:"simbolo"`
-	FechaValida time.Time       `gorm:"column:FechaValida;type:datetime" json:"fecha_valida"`
+	Moneda      string          `gorm:"column:Moneda;type:varchar(64)" `
+	Valor       decimal.Decimal `gorm:"column:Valor;type:money" `
+	Fecha       time.Time       `gorm:"column:Fecha;type:datetime" `
+	Simbolo     string          `gorm:"column:Simbolo;type:varchar(8)"`
+	FechaValida time.Time       `gorm:"column:FechaValida;type:datetime"`
 }
 
 func (Coin) TableName() string {

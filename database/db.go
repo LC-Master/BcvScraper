@@ -24,15 +24,19 @@ func SaveTasaCambio(db *gorm.DB, tasa models.TasaCambio) error {
 	if db == nil {
 		return fmt.Errorf("database connection is nil")
 	}
+
 	var ultimosRegistros []models.Coin
-	subquery := db.Table("TasasCambio").Select("MAX(ID)").Group("Moneda")
-	if err := db.Where("ID IN (?)", subquery).Find(&ultimosRegistros).Error; err != nil {
+	subquery := db.Table("TasasCambio").Select("Moneda, MAX(FechaValida) as FechaValida").Group("Moneda")
+
+	if err := db.Table("TasasCambio as t").
+		Joins("JOIN (?) s ON s.Moneda = t.Moneda AND s.FechaValida = t.FechaValida", subquery).
+		Find(&ultimosRegistros).Error; err != nil {
 		return err
 	}
 
 	ultimasFechas := make(map[string]string)
 	for _, r := range ultimosRegistros {
-		ultimasFechas[r.Moneda] = r.FechaValida.Format("2006-01-02 15:04")
+		ultimasFechas[r.Moneda] = r.FechaValida.Format("2006-01-02")
 	}
 
 	nuevas := []models.Coin{}
@@ -43,13 +47,12 @@ func SaveTasaCambio(db *gorm.DB, tasa models.TasaCambio) error {
 			continue
 		}
 
-		fechaEntranteStr := c.FechaValida.Format("2006-01-02 15:04")
-
+		fechaEntranteStr := c.FechaValida.Format("2006-01-02")
 		ultimaFechaStr, existe := ultimasFechas[c.Moneda]
 
 		if !existe || ultimaFechaStr != fechaEntranteStr {
-			c.Fecha = c.Fecha.Local()
-			c.FechaValida = c.FechaValida.Local()
+			c.Fecha = c.Fecha.UTC()
+			c.FechaValida = c.FechaValida.UTC()
 
 			nuevas = append(nuevas, c)
 		}
@@ -57,12 +60,11 @@ func SaveTasaCambio(db *gorm.DB, tasa models.TasaCambio) error {
 
 	if len(nuevas) > 0 {
 		if err := db.Create(&nuevas).Error; err != nil {
-			slog.Error("Error al insertar nuevas tasas", "error", err)
 			return err
 		}
 		slog.Info("Registros nuevos guardados", "count", len(nuevas))
 	} else {
-		slog.Info("No hay cambios en las tasas, nada que guardar")
+		slog.Info("Tasas al día. No se requiere guardado.")
 	}
 
 	return nil
