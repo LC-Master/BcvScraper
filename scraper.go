@@ -2,9 +2,11 @@ package main
 
 import (
 	"crypto/tls"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"scraperbcv/models"
 	"strings"
 	"time"
@@ -14,15 +16,18 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func scrapeCoins[T any](url string, searchString string, scraper func(*colly.HTMLElement) T) ([]T, error) {
+func scrapeCoins[T any](url string, searchString string, scraper func(*colly.HTMLElement) (T, error)) ([]T, error) {
 	c := colly.NewCollector(
 		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
 		colly.AllowedDomains("www.banrep.gov.co", "banrep.gov.co", "bcv.org.ve", "www.bcv.org.ve"),
 	)
 
 	var coins []T
+	var scrapeErr error
 
 	c.SetRequestTimeout(30 * time.Second)
+
+	allowInsecure := strings.EqualFold(os.Getenv("ALLOW_INSECURE_TLS"), "true")
 
 	c.WithTransport(&http.Transport{
 		Proxy: http.ProxyFromEnvironment,
@@ -30,7 +35,7 @@ func scrapeCoins[T any](url string, searchString string, scraper func(*colly.HTM
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: allowInsecure},
 		IdleConnTimeout: 90 * time.Second,
 	})
 
@@ -45,44 +50,66 @@ func scrapeCoins[T any](url string, searchString string, scraper func(*colly.HTM
 	})
 
 	c.OnResponse(func(r *colly.Response) {
-		slog.Info("visited", "status", r.StatusCode, "url", r.Request.URL.String())
+		slog.Info("request completed", "status", r.StatusCode, "url", r.Request.URL.String())
 	})
 
 	c.OnError(func(r *colly.Response, err error) {
 		if r != nil && r.Request != nil {
-			slog.Error("request error", "status", r.StatusCode, "url", r.Request.URL.String(), "error", err)
+			slog.Error("request failed", "status", r.StatusCode, "url", r.Request.URL.String(), "error", err)
 		} else {
-			slog.Error("request error", "error", err)
+			slog.Error("request failed", "error", err)
 		}
 	})
 
 	c.OnHTML(searchString, func(e *colly.HTMLElement) {
-		coins = append(coins, scraper(e))
+		coin, err := scraper(e)
+		if err != nil {
+			if scrapeErr == nil {
+				scrapeErr = err
+			}
+			slog.Error("failed to parse coin", "url", url, "selector", searchString, "error", err)
+			return
+		}
+		coins = append(coins, coin)
 	})
 
 	err := c.Visit(url)
 	if err != nil {
-		slog.Error("failed to visit URL", "error", err)
+		slog.Error("failed to visit url", "error", err)
 		return nil, err
+	}
+
+	if scrapeErr != nil {
+		return coins, scrapeErr
+	}
+
+	if len(coins) == 0 {
+		return nil, fmt.Errorf("no results for selector: %s", searchString)
 	}
 
 	return coins, nil
 }
+
 func scrapeTasaCambio() (*models.TasaCambio, error) {
 	g := new(errgroup.Group)
 
 	var pesos []models.Coin
 	g.Go(func() error {
 		var err error
-		pesos, err = scrapeCoins("https://www.banrep.gov.co/es", ".indicator--trm", func(e *colly.HTMLElement) models.Coin {
+		pesos, err = scrapeCoins("https://www.banrep.gov.co/es", ".indicator--trm", func(e *colly.HTMLElement) (models.Coin, error) {
 			price := e.ChildAttr("#trm", "value")
 			dateRaw := strings.TrimSpace(e.ChildText(".indicator__comment"))
 
 			tm, err := time.Parse("02/01/2006", dateRaw)
 
 			if err != nil {
-				slog.Error("Error parsing date", "error", err, "raw_date", dateRaw)
+				slog.Warn("Failed to parse date", "error", err, "raw_date", dateRaw)
 				tm = time.Now()
+			}
+
+			valor, err := decimal.NewFromString(price)
+			if err != nil {
+				return models.Coin{}, fmt.Errorf("failed to parse pesos price: %w", err)
 			}
 
 			date := time.Date(
@@ -91,11 +118,11 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 
 			return models.Coin{
 				Moneda:      "Pesos",
-				Valor:       decimal.RequireFromString(price),
+				Valor:       valor,
 				Fecha:       time.Now(),
 				Simbolo:     "$",
 				FechaValida: date,
-			}
+			}, nil
 		})
 		return err
 	})
@@ -103,7 +130,7 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 	var bcvCoins []models.Coin
 	g.Go(func() error {
 		var err error
-		bcvCoins, err = scrapeCoins("https://bcv.org.ve/", "#dolar, #euro", func(e *colly.HTMLElement) models.Coin {
+		bcvCoins, err = scrapeCoins("https://bcv.org.ve/", "#dolar, #euro", func(e *colly.HTMLElement) (models.Coin, error) {
 			name := strings.TrimSpace(e.ChildText("span"))
 			priceRaw := strings.TrimSpace(e.ChildText(".centrado strong"))
 
@@ -111,6 +138,11 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 			priceClean = strings.ReplaceAll(priceClean, ",", ".")
 			priceClean = strings.TrimSpace(priceClean)
 			var fechaValida time.Time
+
+			valor, err := decimal.NewFromString(priceClean)
+			if err != nil {
+				return models.Coin{}, fmt.Errorf("failed to parse %s price: %w", name, err)
+			}
 
 			fechaRaw := e.DOM.Closest(".views-row").Find(".date-display-single").AttrOr("content", "")
 
@@ -121,7 +153,7 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 			}
 
 			if fechaValida.IsZero() {
-				slog.Warn("Could not get date from content, using current date")
+				slog.Warn("Missing date in content, using current date")
 				fechaValida = time.Now()
 			}
 
@@ -132,17 +164,25 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 
 			return models.Coin{
 				Moneda:      moneda,
-				Valor:       decimal.RequireFromString(priceClean),
+				Valor:       valor,
 				Fecha:       time.Now(),
 				Simbolo:     "",
 				FechaValida: fechaValida,
-			}
+			}, nil
 		})
 		return err
 	})
 
 	if waitErr := g.Wait(); waitErr != nil {
-		slog.Error("Error scraping pesos", "error", waitErr)
+		slog.Error("Scrape group failed", "error", waitErr)
+		return nil, waitErr
+	}
+
+	if len(pesos) == 0 {
+		return nil, fmt.Errorf("no pesos data scraped")
+	}
+	if len(bcvCoins) == 0 {
+		return nil, fmt.Errorf("no BCV data scraped")
 	}
 
 	var tasa models.TasaCambio
@@ -163,5 +203,11 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 		tasa.Pesos = c
 		tasa.Pesos.Simbolo = "$"
 	}
+
+	if tasa.Dolar.Moneda == "" || tasa.Euro.Moneda == "" || tasa.Pesos.Moneda == "" {
+		return nil, fmt.Errorf("missing currency data in scrape result")
+	}
+
+	slog.Info("Scrape completed", "pesos_count", len(pesos), "bcv_count", len(bcvCoins))
 	return &tasa, nil
 }

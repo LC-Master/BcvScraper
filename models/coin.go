@@ -7,16 +7,15 @@ import (
 )
 
 type Coin struct {
-	ID          uint            `gorm:"primaryKey;autoIncrement"`
-	Moneda      string          `gorm:"column:Moneda;type:varchar(64)" `
-	Valor       decimal.Decimal `gorm:"column:Valor;type:money" `
-	Fecha       time.Time       `gorm:"column:Fecha;type:datetime" `
-	Simbolo     string          `gorm:"column:Simbolo;type:varchar(8)"`
+	Moneda      string          `gorm:"column:Moneda;type:nvarchar(50)"`
+	Valor       decimal.Decimal `gorm:"column:Valor;type:money"`
+	Fecha       time.Time       `gorm:"column:Fecha;type:datetime"`
+	Simbolo     string          `gorm:"column:Simbolo;type:nchar(1)"`
 	FechaValida time.Time       `gorm:"column:FechaValida;type:datetime"`
 }
 
 func (Coin) TableName() string {
-	return "TasasCambio"
+	return "dbo.[LOCATEL.TasasCambio]"
 }
 
 type TasaCambio struct {
