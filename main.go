@@ -140,9 +140,7 @@ func main() {
 	slog.Info(fmt.Sprintf("INFO Server on Url 127.0.0.1:%s", port))
 	slog.Info(fmt.Sprintf("INFO PID: %d", os.Getpid()))
 
-	if err := server.Listen(":"+port, fiber.ListenConfig{
-		DisableStartupMessage: true,
-	}); err != nil {
+	if err := RunServer(server, port); err != nil {
 		slog.Error("Failed to start server", "error", err)
 	}
 }
