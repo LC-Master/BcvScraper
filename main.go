@@ -43,6 +43,12 @@ func main() {
 		}
 	}()
 
+	exePath, err := os.Executable()
+	if err == nil {
+		importPath := filepath.Dir(exePath)
+		_ = os.Chdir(importPath)
+	}
+
 	var logFile *os.File
 	var logWriter io.Writer = os.Stdout
 	if f, ferr := os.OpenFile("app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); ferr == nil {
@@ -53,12 +59,6 @@ func main() {
 
 	logger := slog.New(slog.NewJSONHandler(logWriter, &slog.HandlerOptions{}))
 	slog.SetDefault(logger)
-
-	exePath, err := os.Executable()
-	if err == nil {
-		importPath := filepath.Dir(exePath)
-		_ = os.Chdir(importPath)
-	}
 
 	err = godotenv.Load()
 	if err != nil {
