@@ -154,7 +154,8 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 
 			if fechaValida.IsZero() {
 				slog.Warn("Missing date in content, using current date")
-				fechaValida = time.Now().UTC()
+				now := time.Now().UTC()
+				fechaValida = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 			}
 
 			moneda := "Dolar"

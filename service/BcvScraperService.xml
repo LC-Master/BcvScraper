@@ -1,0 +1,23 @@
+<service>
+  <id>BcvScraperService</id>
+  <name>BCV Scraper Service</name>
+  <description>Servicio de extracción automática de datos del BCV. Desarrollado en Go.</description>
+  
+  <executable>%BASE%\BcvScraper.exe</executable>
+  
+  <workingdirectory>%BASE%</workingdirectory>
+
+  <priority>normal</priority>
+
+  <startmode>Automatic</startmode>
+
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="1 min"/>
+
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>10</keepFiles>
+  </log>
+
+  </service>

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -41,7 +42,15 @@ func main() {
 		}
 	}()
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{}))
+	var logFile *os.File
+	var logWriter io.Writer = os.Stdout
+	if f, ferr := os.OpenFile("app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); ferr == nil {
+		logFile = f
+		logWriter = io.MultiWriter(os.Stdout, logFile)
+		defer func() { _ = logFile.Close() }()
+	}
+
+	logger := slog.New(slog.NewJSONHandler(logWriter, &slog.HandlerOptions{}))
 	slog.SetDefault(logger)
 
 	err := godotenv.Load()
