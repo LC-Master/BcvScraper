@@ -104,7 +104,7 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 
 			if err != nil {
 				slog.Warn("Failed to parse date", "error", err, "raw_date", dateRaw)
-				tm = time.Now()
+				tm = time.Now().UTC()
 			}
 
 			valor, err := decimal.NewFromString(price)
@@ -119,7 +119,7 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 			return models.Coin{
 				Moneda:      "Pesos",
 				Valor:       valor,
-				Fecha:       time.Now(),
+				Fecha:       time.Now().UTC(),
 				Simbolo:     "$",
 				FechaValida: date,
 			}, nil
@@ -154,7 +154,7 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 
 			if fechaValida.IsZero() {
 				slog.Warn("Missing date in content, using current date")
-				fechaValida = time.Now()
+				fechaValida = time.Now().UTC()
 			}
 
 			moneda := "Dolar"
@@ -165,7 +165,7 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 			return models.Coin{
 				Moneda:      moneda,
 				Valor:       valor,
-				Fecha:       time.Now(),
+				Fecha:       time.Now().UTC(),
 				Simbolo:     "",
 				FechaValida: fechaValida,
 			}, nil
