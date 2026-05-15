@@ -3,7 +3,7 @@
   <name>BCV Scraper Service</name>
   <description>Servicio de extracción automática de datos del BCV. Desarrollado en Go.</description>
   
-  <executable>%BASE%\BcvScraper.exe</executable>
+  <executable>%BASE%\ScraperBcv.exe</executable>
   
   <workingdirectory>%BASE%</workingdirectory>
 
