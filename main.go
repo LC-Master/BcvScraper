@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"scraperbcv/database"
 	"sync/atomic"
 	"syscall"
@@ -53,7 +54,13 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(logWriter, &slog.HandlerOptions{}))
 	slog.SetDefault(logger)
 
-	err := godotenv.Load()
+	exePath, err := os.Executable()
+	if err == nil {
+		importPath := filepath.Dir(exePath)
+		_ = os.Chdir(importPath)
+	}
+
+	err = godotenv.Load()
 	if err != nil {
 		slog.Warn("Failed to load .env file", "error", err)
 	}
