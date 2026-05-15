@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -127,7 +128,12 @@ func main() {
 		}
 	}()
 
-	if err := server.Listen(":" + port); err != nil {
+	slog.Info(fmt.Sprintf("INFO Server on Url 127.0.0.1:%s", port))
+	slog.Info(fmt.Sprintf("INFO PID: %d", os.Getpid()))
+
+	if err := server.Listen(":"+port, fiber.ListenConfig{
+		DisableStartupMessage: true,
+	}); err != nil {
 		slog.Error("Failed to start server", "error", err)
 	}
 }
