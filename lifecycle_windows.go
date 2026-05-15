@@ -20,13 +20,13 @@ func (h *windowsServiceHandler) Execute(args []string, r <-chan svc.ChangeReques
 
 	s <- svc.Status{State: svc.StartPending}
 
+	s <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
+
 	go func() {
 		if err := h.server.Listen(":"+h.port, fiber.ListenConfig{DisableStartupMessage: true}); err != nil {
 			slog.Error("server.Listen failed", "error", err)
 		}
 	}()
-
-	s <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
 
 	for c := range r {
 		switch c.Cmd {
