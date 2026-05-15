@@ -12,23 +12,23 @@ jobs:
   build-and-release:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout código
+      - name: Checkout codigo
         uses: actions/checkout@v4
 
-      - name: Configurar entorno de Go
+      - name: Configurar Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
 
-      - name: Compilar para Windows
+      - name: Compilar Windows
         run: |
           GOOS=windows GOARCH=amd64 go build -o bin/mi_programa.exe main.go
 
-      - name: Compilar para Linux
+      - name: Compilar Linux
         run: |
           GOOS=linux GOARCH=amd64 go build -o bin/mi_programa_linux main.go
 
-      - name: Crear GitHub Release y subir archivos
+      - name: Crear Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
