@@ -1,0 +1,38 @@
+name: Release Go App
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar entorno de Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Compilar para Windows
+        run: |
+          GOOS=windows GOARCH=amd64 go build -o bin/mi_programa.exe main.go
+
+      - name: Compilar para Linux
+        run: |
+          GOOS=linux GOARCH=amd64 go build -o bin/mi_programa_linux main.go
+
+      - name: Crear GitHub Release y subir archivos
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            bin/mi_programa.exe
+            bin/mi_programa_linux
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
