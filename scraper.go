@@ -119,7 +119,7 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 			return models.Coin{
 				Moneda:      "Pesos",
 				Valor:       valor,
-				Fecha:       time.Now().UTC(),
+				Fecha:       time.Now().Local(),
 				Simbolo:     "$",
 				FechaValida: date,
 			}, nil
@@ -166,7 +166,7 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 			return models.Coin{
 				Moneda:      moneda,
 				Valor:       valor,
-				Fecha:       time.Now().UTC(),
+				Fecha:       time.Now().Local(),
 				Simbolo:     "",
 				FechaValida: fechaValida,
 			}, nil
