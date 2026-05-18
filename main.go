@@ -25,6 +25,18 @@ type App struct {
 	scrapeInProgress int32
 }
 
+type syncedWriter struct {
+	file *os.File
+}
+
+func (w *syncedWriter) Write(p []byte) (n int, err error) {
+	n, err = w.file.Write(p)
+	if err == nil {
+		_ = w.file.Sync()
+	}
+	return n, err
+}
+
 const (
 	scrapeMaxAttempts  = 5
 	scrapeBaseDelay    = 5 * time.Second
@@ -63,7 +75,7 @@ func main() {
 
 	if f, ferr := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); ferr == nil {
 		logFile = f
-		logWriter = io.MultiWriter(os.Stdout, logFile)
+		logWriter = io.MultiWriter(os.Stdout, &syncedWriter{file: f})
 		defer func() { _ = logFile.Close() }()
 	} else {
 		fmt.Fprintf(os.Stderr, "Failed to open log file %s: %v\n", logPath, ferr)
