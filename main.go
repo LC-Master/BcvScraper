@@ -48,44 +48,54 @@ const (
 	serverIdleTimeout  = 30 * time.Second
 )
 
+func initLogger() *os.File {
+	dirBase := "C:\\BcvScraper"
+	if len(os.Args) > 0 {
+		if argsPath := filepath.Dir(os.Args[0]); filepath.IsAbs(argsPath) {
+			dirBase = argsPath
+		}
+	}
+	_ = os.Chdir(dirBase)
+
+	logPath := filepath.Join(dirBase, "app.log")
+	f, ferr := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666)
+
+	var logWriter io.Writer = os.Stdout
+	if ferr == nil {
+		logWriter = io.MultiWriter(os.Stdout, &syncedWriter{file: f})
+	} else {
+		fmt.Fprintf(os.Stderr, "Critical: failed to open log file: %v\n", ferr)
+	}
+
+	logger := slog.New(slog.NewJSONHandler(logWriter, &slog.HandlerOptions{}))
+	slog.SetDefault(logger)
+
+	return f
+}
+
 func main() {
+	logFile := initLogger()
+	if logFile != nil {
+		defer logFile.Close()
+	}
+
+	slog.Info("=== BCV SCRAPER SERVICE STARTED ===")
+
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("panic recovered in main", "panic", r)
 		}
 	}()
 
-	exePath, err := os.Executable()
-	if err != nil {
-		slog.Error("Failed to get executable path", "error", err)
-		os.Exit(1)
+	dirBase := "C:\\BcvScraper"
+	if len(os.Args) > 0 {
+		if argsPath := filepath.Dir(os.Args[0]); filepath.IsAbs(argsPath) {
+			dirBase = argsPath
+		}
 	}
-
-	dirBase, err := filepath.EvalSymlinks(filepath.Dir(exePath))
-	if err != nil {
-		dirBase = filepath.Dir(exePath)
-	}
-
-	_ = os.Chdir(dirBase)
-
-	logPath := filepath.Join(dirBase, "app.log")
-
-	var logFile *os.File
-	var logWriter io.Writer = os.Stdout
-
-	if f, ferr := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); ferr == nil {
-		logFile = f
-		logWriter = io.MultiWriter(os.Stdout, &syncedWriter{file: f})
-		defer func() { _ = logFile.Close() }()
-	} else {
-		fmt.Fprintf(os.Stderr, "Failed to open log file %s: %v\n", logPath, ferr)
-	}
-
-	logger := slog.New(slog.NewJSONHandler(logWriter, &slog.HandlerOptions{}))
-	slog.SetDefault(logger)
 
 	envPath := filepath.Join(dirBase, ".env")
-	err = godotenv.Load(envPath)
+	err := godotenv.Load(envPath)
 	if err != nil {
 		slog.Warn("Failed to load .env file, attempting default load", "path", envPath, "error", err)
 		_ = godotenv.Load()
