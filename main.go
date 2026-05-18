@@ -44,25 +44,39 @@ func main() {
 	}()
 
 	exePath, err := os.Executable()
-	if err == nil {
-		importPath := filepath.Dir(exePath)
-		_ = os.Chdir(importPath)
+	if err != nil {
+		slog.Error("Failed to get executable path", "error", err)
+		os.Exit(1)
 	}
+
+	dirBase, err := filepath.EvalSymlinks(filepath.Dir(exePath))
+	if err != nil {
+		dirBase = filepath.Dir(exePath)
+	}
+
+	_ = os.Chdir(dirBase)
+
+	logPath := filepath.Join(dirBase, "app.log")
 
 	var logFile *os.File
 	var logWriter io.Writer = os.Stdout
-	if f, ferr := os.OpenFile("app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); ferr == nil {
+
+	if f, ferr := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); ferr == nil {
 		logFile = f
 		logWriter = io.MultiWriter(os.Stdout, logFile)
 		defer func() { _ = logFile.Close() }()
+	} else {
+		fmt.Fprintf(os.Stderr, "Failed to open log file %s: %v\n", logPath, ferr)
 	}
 
 	logger := slog.New(slog.NewJSONHandler(logWriter, &slog.HandlerOptions{}))
 	slog.SetDefault(logger)
 
-	err = godotenv.Load()
+	envPath := filepath.Join(dirBase, ".env")
+	err = godotenv.Load(envPath)
 	if err != nil {
-		slog.Warn("Failed to load .env file", "error", err)
+		slog.Warn("Failed to load .env file, attempting default load", "path", envPath, "error", err)
+		_ = godotenv.Load()
 	}
 
 	port := os.Getenv("PORT")
@@ -188,10 +202,6 @@ func loadConnStringWithRetry() string {
 	var connString string
 
 	_ = withRetry("load_config", 0, dbConnectBaseDelay, dbConnectMaxDelay, func() error {
-		if err := godotenv.Load(); err != nil {
-			slog.Warn("Failed to load .env file", "error", err)
-		}
-
 		connString = os.Getenv("DB_CONNECTION_STRING")
 		if connString == "" {
 			return errors.New("DB_CONNECTION_STRING is not set")

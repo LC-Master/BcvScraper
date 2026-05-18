@@ -113,7 +113,7 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 			}
 
 			date := time.Date(
-				tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, time.UTC,
+				tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, time.FixedZone("UTC", 0),
 			)
 
 			return models.Coin{
