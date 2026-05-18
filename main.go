@@ -3,11 +3,9 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"scraperbcv/database"
 	"sync/atomic"
 	"syscall"
@@ -25,18 +23,6 @@ type App struct {
 	scrapeInProgress int32
 }
 
-type syncedWriter struct {
-	file *os.File
-}
-
-func (w *syncedWriter) Write(p []byte) (n int, err error) {
-	n, err = w.file.Write(p)
-	if err == nil {
-		_ = w.file.Sync()
-	}
-	return n, err
-}
-
 const (
 	scrapeMaxAttempts  = 5
 	scrapeBaseDelay    = 5 * time.Second
@@ -48,38 +34,15 @@ const (
 	serverIdleTimeout  = 30 * time.Second
 )
 
-func initLogger() *os.File {
-	dirBase := "C:\\BcvScraper"
-	if len(os.Args) > 0 {
-		if argsPath := filepath.Dir(os.Args[0]); filepath.IsAbs(argsPath) {
-			dirBase = argsPath
-		}
-	}
-	_ = os.Chdir(dirBase)
-
-	logPath := filepath.Join(dirBase, "app.log")
-	f, ferr := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666)
-
-	var logWriter io.Writer = os.Stdout
-	if ferr == nil {
-		logWriter = io.MultiWriter(os.Stdout, &syncedWriter{file: f})
-	} else {
-		fmt.Fprintf(os.Stderr, "Critical: failed to open log file: %v\n", ferr)
-	}
-
-	logger := slog.New(slog.NewJSONHandler(logWriter, &slog.HandlerOptions{}))
+func initLogger() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{}))
 	slog.SetDefault(logger)
-
-	return f
 }
 
 func main() {
-	logFile := initLogger()
-	if logFile != nil {
-		defer logFile.Close()
-	}
+	initLogger()
 
-	slog.Info("=== BCV SCRAPER SERVICE STARTED ===")
+	slog.Info("=== BCV SCRAPER SERVICE STARTED VIA WINSW ===")
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -87,17 +50,9 @@ func main() {
 		}
 	}()
 
-	dirBase := "C:\\BcvScraper"
-	if len(os.Args) > 0 {
-		if argsPath := filepath.Dir(os.Args[0]); filepath.IsAbs(argsPath) {
-			dirBase = argsPath
-		}
-	}
-
-	envPath := filepath.Join(dirBase, ".env")
-	err := godotenv.Load(envPath)
+	err := godotenv.Load()
 	if err != nil {
-		slog.Warn("Failed to load .env file, attempting default load", "path", envPath, "error", err)
+		slog.Warn("Failed to load .env file, attempting default load", "error", err)
 		_ = godotenv.Load()
 	}
 
@@ -183,7 +138,8 @@ func main() {
 	slog.Info(fmt.Sprintf("INFO Server on Url 127.0.0.1:%s", port))
 	slog.Info(fmt.Sprintf("INFO PID: %d", os.Getpid()))
 
-	if err := RunServer(server, port); err != nil {
+	slog.Info("Starting Fiber server in console mode...")
+	if err := server.Listen(":"+port, fiber.ListenConfig{DisableStartupMessage: true}); err != nil {
 		slog.Error("Failed to start server", "error", err)
 	}
 }
