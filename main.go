@@ -20,7 +20,7 @@ import (
 
 type App struct {
 	db               *gorm.DB
-	scrapeInProgress int32
+	scrapeInProgress atomic.Int32
 }
 
 const (
@@ -145,11 +145,11 @@ func main() {
 }
 
 func runScrapeTask(app *App, trigger string) {
-	if !atomic.CompareAndSwapInt32(&app.scrapeInProgress, 0, 1) {
+	if !app.scrapeInProgress.CompareAndSwap(0, 1) {
 		slog.Warn("Scrape skipped; another scrape is running", "trigger", trigger)
 		return
 	}
-	defer atomic.StoreInt32(&app.scrapeInProgress, 0)
+	defer app.scrapeInProgress.Store(0)
 
 	defer func() {
 		if r := recover(); r != nil {

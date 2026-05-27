@@ -1,3 +1,5 @@
 .env
 ScraperBcv.exe
 app.log
+db.sql
+.env.docker

@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 	"log/slog"
+	"net/url"
 	"scraperbcv/models"
 	"strings"
 
@@ -12,7 +13,41 @@ import (
 
 const tableIdentifier = "[dbo].[LOCATEL.TasasCambio]"
 
+func EscapeConnString(rawString string) string {
+	if !strings.HasPrefix(rawString, "sqlserver://") {
+		return rawString
+	}
+
+	str := strings.TrimPrefix(rawString, "sqlserver://")
+
+	queryParams := ""
+	if idx := strings.Index(str, "?"); idx != -1 {
+		queryParams = str[idx:]
+		str = str[:idx]
+	}
+
+	lastAt := strings.LastIndex(str, "@")
+	if lastAt == -1 {
+		return rawString
+	}
+
+	credentials := str[:lastAt]
+	host := str[lastAt+1:]
+
+	username := credentials
+	password := ""
+	if colonIdx := strings.Index(credentials, ":"); colonIdx != -1 {
+		username = credentials[:colonIdx]
+		password = credentials[colonIdx+1:]
+	}
+
+	escapedPassword := url.PathEscape(password)
+
+	return fmt.Sprintf("sqlserver://%s:%s@%s%s", username, escapedPassword, host, queryParams)
+}
+
 func InitDB(connString string) (*gorm.DB, error) {
+	connString = EscapeConnString(connString)
 	db, err := gorm.Open(sqlserver.Open(connString), &gorm.Config{})
 	if err != nil {
 		return nil, err
@@ -52,7 +87,6 @@ func SaveTasaCambio(db *gorm.DB, tasa models.TasaCambio) error {
 		ultimaFechaStr, existe := ultimasFechas[c.Moneda]
 
 		if !existe || ultimaFechaStr != fechaEntranteStr {
-			c.Fecha = c.Fecha.UTC()
 			c.FechaValida = c.FechaValida.UTC()
 
 			nuevas = append(nuevas, c)
@@ -61,24 +95,28 @@ func SaveTasaCambio(db *gorm.DB, tasa models.TasaCambio) error {
 
 	if len(nuevas) > 0 {
 		cols := "(Moneda, Valor, Fecha, Simbolo, FechaValida)"
-		values := ""
+		var values strings.Builder
 		args := []any{}
 
 		for i, r := range nuevas {
 			if i > 0 {
-				values += ","
+				values.WriteString(",")
 			}
-			values += "(?, ?, ?, ?, ?)"
+			values.WriteString("(?, ?, ?, ?, ?)")
 			args = append(args, r.Moneda, r.Valor.String(), r.Fecha.Format("2006-01-02 15:04:05"), r.Simbolo, r.FechaValida.Format("2006-01-02 15:04:05"))
 		}
 
-		insertSQL := fmt.Sprintf("INSERT INTO %s %s VALUES %s", tableIdentifier, cols, values)
+		insertSQL := fmt.Sprintf("INSERT INTO %s %s VALUES %s", tableIdentifier, cols, values.String())
 
 		if err := db.Exec(insertSQL, args...).Error; err != nil {
 			return err
 		}
 
-		slog.Info("Saved new records", "count", len(nuevas))
+		recordsSummary := make([]string, len(nuevas))
+		for i, r := range nuevas {
+			recordsSummary[i] = fmt.Sprintf("%s=%s (FechaValida=%s)", r.Moneda, r.Valor.String(), r.FechaValida.Format("2006-01-02"))
+		}
+		slog.Info("Saved new records", "count", len(nuevas), "records", strings.Join(recordsSummary, "; "))
 	} else {
 		slog.Info("Rates are up to date; no save required")
 	}
