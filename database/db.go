@@ -45,7 +45,6 @@ func BuildConnString() string {
 	)
 
 	u.RawQuery = q.Encode()
-
 	return u.String()
 }
 
@@ -117,7 +116,7 @@ func SaveTasaCambio(db *gorm.DB, tasa models.TasaCambio) error {
 
 		recordsSummary := make([]string, len(nuevas))
 		for i, r := range nuevas {
-			recordsSummary[i] = fmt.Sprintf("%s=%s (FechaValida=%s)", r.Moneda, r.Valor.String(), r.FechaValida.Format("2006-01-02"))
+			recordsSummary[i] = fmt.Sprintf("%s=%s (FechaValida=%s)", r.Moneda, r.Valor.String(), r.FechaValida.Format("2006-01-02 15:04:05"))
 		}
 		slog.Info("Saved new records", "count", len(nuevas), "records", strings.Join(recordsSummary, "; "))
 	} else {
