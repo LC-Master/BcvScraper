@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
 	"scraperbcv/models"
 	"strings"
 
@@ -13,41 +14,43 @@ import (
 
 const tableIdentifier = "[dbo].[LOCATEL.TasasCambio]"
 
-func EscapeConnString(rawString string) string {
-	if !strings.HasPrefix(rawString, "sqlserver://") {
-		return rawString
+func BuildConnString() string {
+	u := &url.URL{
+		Scheme: "sqlserver",
+		User: url.UserPassword(
+			os.Getenv("DB_USER"),
+			os.Getenv("DB_PASSWORD"),
+		),
+		Host: fmt.Sprintf(
+			"%s:%s",
+			os.Getenv("DB_HOST"),
+			os.Getenv("DB_PORT"),
+		),
 	}
 
-	str := strings.TrimPrefix(rawString, "sqlserver://")
+	q := u.Query()
 
-	queryParams := ""
-	if idx := strings.Index(str, "?"); idx != -1 {
-		queryParams = str[idx:]
-		str = str[:idx]
-	}
+	q.Set("database", os.Getenv("DB_NAME"))
 
-	lastAt := strings.LastIndex(str, "@")
-	if lastAt == -1 {
-		return rawString
-	}
+	q.Set("encrypt", os.Getenv("DB_ENCRYPT"))
 
-	credentials := str[:lastAt]
-	host := str[lastAt+1:]
+	q.Set(
+		"TrustServerCertificate",
+		os.Getenv("DB_TRUST_SERVER_CERTIFICATE"),
+	)
 
-	username := credentials
-	password := ""
-	if colonIdx := strings.Index(credentials, ":"); colonIdx != -1 {
-		username = credentials[:colonIdx]
-		password = credentials[colonIdx+1:]
-	}
+	q.Set(
+		"connection timeout",
+		os.Getenv("DB_CONNECTION_TIMEOUT"),
+	)
 
-	escapedPassword := url.PathEscape(password)
+	u.RawQuery = q.Encode()
 
-	return fmt.Sprintf("sqlserver://%s:%s@%s%s", username, escapedPassword, host, queryParams)
+	return u.String()
 }
 
-func InitDB(connString string) (*gorm.DB, error) {
-	connString = EscapeConnString(connString)
+func InitDB() (*gorm.DB, error) {
+	connString := BuildConnString()
 	db, err := gorm.Open(sqlserver.Open(connString), &gorm.Config{})
 	if err != nil {
 		return nil, err

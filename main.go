@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -68,8 +67,7 @@ func main() {
 		slog.Info("CRON_SPEC not set, using default", "spec", cronSpec)
 	}
 
-	connString := loadConnStringWithRetry()
-	db := connectWithRetry(connString)
+	db := connectWithRetry()
 
 	app := &App{db: db}
 
@@ -176,27 +174,12 @@ func runScrapeTask(app *App, trigger string) {
 	slog.Info("Scrape cycle completed", "trigger", trigger)
 }
 
-func loadConnStringWithRetry() string {
-	var connString string
-
-	_ = withRetry("load_config", 0, dbConnectBaseDelay, dbConnectMaxDelay, func() error {
-		connString = os.Getenv("DB_CONNECTION_STRING")
-		if connString == "" {
-			return errors.New("DB_CONNECTION_STRING is not set")
-		}
-
-		return nil
-	})
-
-	return connString
-}
-
-func connectWithRetry(connString string) *gorm.DB {
+func connectWithRetry() *gorm.DB {
 	var db *gorm.DB
 
 	_ = withRetry("db_connect", 0, dbConnectBaseDelay, dbConnectMaxDelay, func() error {
 		var err error
-		db, err = database.InitDB(connString)
+		db, err = database.InitDB()
 		return err
 	})
 
