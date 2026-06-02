@@ -3,3 +3,4 @@ ScraperBcv.exe
 app.log
 db.sql
 .env.docker
+tmp/

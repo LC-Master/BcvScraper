@@ -89,8 +89,6 @@ func SaveTasaCambio(db *gorm.DB, tasa models.TasaCambio) error {
 		ultimaFechaStr, existe := ultimasFechas[c.Moneda]
 
 		if !existe || ultimaFechaStr != fechaEntranteStr {
-			c.FechaValida = c.FechaValida.UTC()
-
 			nuevas = append(nuevas, c)
 		}
 	}
