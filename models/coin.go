@@ -15,7 +15,7 @@ type Coin struct {
 }
 
 func (Coin) TableName() string {
-	return "dbo.[LOCATEL.TasasCambio]"
+	return "LOCATEL.TasasCambio"
 }
 
 type TasaCambio struct {

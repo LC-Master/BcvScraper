@@ -158,9 +158,15 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 				fechaValida = time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), 0, time.UTC)
 			}
 
-			moneda := "Dolar"
-			if strings.Contains(strings.ToLower(name), "eur") {
+			nameClean := strings.ToLower(name)
+			var moneda string
+
+			if strings.Contains(nameClean, "eur") {
 				moneda = "Euro"
+			} else if strings.Contains(nameClean, "dol") || strings.Contains(nameClean, "usd") {
+				moneda = "Dolar"
+			} else {
+				return models.Coin{}, fmt.Errorf("moneda no identificada de forma segura en el texto: %s", name)
 			}
 
 			return models.Coin{
