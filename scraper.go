@@ -111,7 +111,7 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 			if err != nil {
 				return models.Coin{}, fmt.Errorf("failed to parse pesos price: %w", err)
 			}
-
+			valor = valor.Truncate(4)
 			date := time.Date(
 				tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, time.FixedZone("UTC", 0),
 			)
@@ -143,6 +143,8 @@ func scrapeTasaCambio() (*models.TasaCambio, error) {
 			if err != nil {
 				return models.Coin{}, fmt.Errorf("failed to parse %s price: %w", name, err)
 			}
+
+			valor = valor.Truncate(4)
 
 			fechaRaw := e.DOM.Closest(".views-row").Find(".date-display-single").AttrOr("content", "")
 

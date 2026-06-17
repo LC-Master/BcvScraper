@@ -29,20 +29,10 @@ func BuildConnString() string {
 	}
 
 	q := u.Query()
-
 	q.Set("database", os.Getenv("DB_NAME"))
-
 	q.Set("encrypt", os.Getenv("DB_ENCRYPT"))
-
-	q.Set(
-		"TrustServerCertificate",
-		os.Getenv("DB_TRUST_SERVER_CERTIFICATE"),
-	)
-
-	q.Set(
-		"connection timeout",
-		os.Getenv("DB_CONNECTION_TIMEOUT"),
-	)
+	q.Set("TrustServerCertificate", os.Getenv("DB_TRUST_SERVER_CERTIFICATE"))
+	q.Set("connection timeout", os.Getenv("DB_CONNECTION_TIMEOUT"))
 
 	u.RawQuery = q.Encode()
 	return u.String()
@@ -54,7 +44,6 @@ func InitDB() (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return db, nil
 }
 
@@ -64,17 +53,15 @@ func SaveTasaCambio(db *gorm.DB, tasa models.TasaCambio) error {
 	}
 
 	var ultimosRegistros []models.Coin
-
-	subquerySQL := fmt.Sprintf("(SELECT Moneda, MAX(FechaValida) as FechaValida FROM %s GROUP BY Moneda)", tableIdentifier)
-	querySQL := fmt.Sprintf("SELECT t.Moneda, t.Valor, t.Fecha, t.Simbolo, t.FechaValida FROM %s t JOIN %s s ON s.Moneda = t.Moneda AND s.FechaValida = t.FechaValida", tableIdentifier, subquerySQL)
+	querySQL := fmt.Sprintf("SELECT Moneda, Valor, Fecha, Simbolo, FechaValida FROM (SELECT Moneda, Valor, Fecha, Simbolo, FechaValida, ROW_NUMBER() OVER (PARTITION BY Moneda ORDER BY Fecha DESC) as rn FROM %s) t WHERE t.rn = 1", tableIdentifier)
 
 	if err := db.Raw(querySQL).Scan(&ultimosRegistros).Error; err != nil {
 		return err
 	}
 
-	ultimasFechas := make(map[string]string)
+	ultimosMap := make(map[string]models.Coin)
 	for _, r := range ultimosRegistros {
-		ultimasFechas[r.Moneda] = r.FechaValida.Format("2006-01-02")
+		ultimosMap[r.Moneda] = r
 	}
 
 	nuevas := []models.Coin{}
@@ -85,11 +72,17 @@ func SaveTasaCambio(db *gorm.DB, tasa models.TasaCambio) error {
 			continue
 		}
 
-		fechaEntranteStr := c.FechaValida.Format("2006-01-02")
-		ultimaFechaStr, existe := ultimasFechas[c.Moneda]
+		fechaEntranteStr := c.FechaValida.Format("2006-01-02 15:04:05")
+		ultimo, existe := ultimosMap[c.Moneda]
 
-		if !existe || ultimaFechaStr != fechaEntranteStr {
+		if !existe || ultimo.FechaValida.Format("2006-01-02 15:04:05") != fechaEntranteStr {
 			nuevas = append(nuevas, c)
+		} else if !ultimo.Valor.Equal(c.Valor) {
+			updateSQL := fmt.Sprintf("UPDATE %s SET Valor = ?, Fecha = ? WHERE Moneda = ? AND FechaValida = ?", tableIdentifier)
+			if err := db.Exec(updateSQL, c.Valor.String(), c.Fecha.Format("2006-01-02 15:04:05"), c.Moneda, fechaEntranteStr).Error; err != nil {
+				return err
+			}
+			slog.Info("Updated existing record with new value", "moneda", c.Moneda, "valor", c.Valor.String(), "fechaValida", fechaEntranteStr)
 		}
 	}
 
@@ -107,7 +100,6 @@ func SaveTasaCambio(db *gorm.DB, tasa models.TasaCambio) error {
 		}
 
 		insertSQL := fmt.Sprintf("INSERT INTO %s %s VALUES %s", tableIdentifier, cols, values.String())
-
 		if err := db.Exec(insertSQL, args...).Error; err != nil {
 			return err
 		}
@@ -117,7 +109,7 @@ func SaveTasaCambio(db *gorm.DB, tasa models.TasaCambio) error {
 			recordsSummary[i] = fmt.Sprintf("%s=%s (FechaValida=%s)", r.Moneda, r.Valor.String(), r.FechaValida.Format("2006-01-02 15:04:05"))
 		}
 		slog.Info("Saved new records", "count", len(nuevas), "records", strings.Join(recordsSummary, "; "))
-	} else {
+	} else if len(nuevas) == 0 {
 		slog.Info("Rates are up to date; no save required")
 	}
 
@@ -130,9 +122,7 @@ func GetUltimaTasaCambio(db *gorm.DB) (models.TasaCambio, error) {
 	}
 
 	var rows []models.Coin
-
-	subquerySQL := fmt.Sprintf("(SELECT Moneda, MAX(FechaValida) as FechaValida FROM %s GROUP BY Moneda)", tableIdentifier)
-	querySQL := fmt.Sprintf("SELECT t.Moneda, t.Valor, t.Fecha, t.Simbolo, t.FechaValida FROM %s t JOIN %s s ON s.Moneda = t.Moneda AND s.FechaValida = t.FechaValida", tableIdentifier, subquerySQL)
+	querySQL := fmt.Sprintf("SELECT Moneda, Valor, Fecha, Simbolo, FechaValida FROM (SELECT Moneda, Valor, Fecha, Simbolo, FechaValida, ROW_NUMBER() OVER (PARTITION BY Moneda ORDER BY Fecha DESC) as rn FROM %s) t WHERE t.rn = 1", tableIdentifier)
 
 	if err := db.Raw(querySQL).Scan(&rows).Error; err != nil {
 		return models.TasaCambio{}, err
@@ -170,6 +160,5 @@ func Ping(db *gorm.DB) error {
 	if err := db.Raw("SELECT 1").Scan(&one).Error; err != nil {
 		return err
 	}
-
 	return nil
 }
