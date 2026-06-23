@@ -52,19 +52,6 @@ func SaveTasaCambio(db *gorm.DB, tasa models.TasaCambio) error {
 		return fmt.Errorf("database connection is nil")
 	}
 
-	var ultimosRegistros []models.Coin
-	querySQL := fmt.Sprintf("SELECT Moneda, Valor, Fecha, Simbolo, FechaValida FROM (SELECT Moneda, Valor, Fecha, Simbolo, FechaValida, ROW_NUMBER() OVER (PARTITION BY Moneda ORDER BY Fecha DESC) as rn FROM %s) t WHERE t.rn = 1", tableIdentifier)
-
-	if err := db.Raw(querySQL).Scan(&ultimosRegistros).Error; err != nil {
-		return err
-	}
-
-	ultimosMap := make(map[string]models.Coin)
-	for _, r := range ultimosRegistros {
-		ultimosMap[r.Moneda] = r
-	}
-
-	nuevas := []models.Coin{}
 	candidatas := []models.Coin{tasa.Dolar, tasa.Euro, tasa.Pesos}
 
 	for _, c := range candidatas {
@@ -73,44 +60,29 @@ func SaveTasaCambio(db *gorm.DB, tasa models.TasaCambio) error {
 		}
 
 		fechaEntranteStr := c.FechaValida.Format("2006-01-02 15:04:05")
-		ultimo, existe := ultimosMap[c.Moneda]
+		var existente models.Coin
 
-		if !existe || ultimo.FechaValida.Format("2006-01-02 15:04:05") != fechaEntranteStr {
-			nuevas = append(nuevas, c)
-		} else if !ultimo.Valor.Equal(c.Valor) {
+		querySQL := fmt.Sprintf("SELECT Moneda, Valor, Fecha, Simbolo, FechaValida FROM %s WHERE Moneda = ? AND FechaValida = ?", tableIdentifier)
+		if err := db.Raw(querySQL, c.Moneda, fechaEntranteStr).Scan(&existente).Error; err != nil {
+			return err
+		}
+
+		if existente.Moneda == "" {
+			cols := "(Moneda, Valor, Fecha, Simbolo, FechaValida)"
+			insertSQL := fmt.Sprintf("INSERT INTO %s %s VALUES (?, ?, ?, ?, ?)", tableIdentifier, cols)
+			if err := db.Exec(insertSQL, c.Moneda, c.Valor.String(), c.Fecha.Format("2006-01-02 15:04:05"), c.Simbolo, fechaEntranteStr).Error; err != nil {
+				return err
+			}
+			slog.Info("Saved new record", "moneda", c.Moneda, "valor", c.Valor.String(), "fechaValida", fechaEntranteStr)
+		} else if !existente.Valor.Equal(c.Valor) {
 			updateSQL := fmt.Sprintf("UPDATE %s SET Valor = ?, Fecha = ? WHERE Moneda = ? AND FechaValida = ?", tableIdentifier)
 			if err := db.Exec(updateSQL, c.Valor.String(), c.Fecha.Format("2006-01-02 15:04:05"), c.Moneda, fechaEntranteStr).Error; err != nil {
 				return err
 			}
 			slog.Info("Updated existing record with new value", "moneda", c.Moneda, "valor", c.Valor.String(), "fechaValida", fechaEntranteStr)
+		} else {
+			slog.Info("Rates are up to date; no save required", "moneda", c.Moneda, "fechaValida", fechaEntranteStr)
 		}
-	}
-
-	if len(nuevas) > 0 {
-		cols := "(Moneda, Valor, Fecha, Simbolo, FechaValida)"
-		var values strings.Builder
-		args := []any{}
-
-		for i, r := range nuevas {
-			if i > 0 {
-				values.WriteString(",")
-			}
-			values.WriteString("(?, ?, ?, ?, ?)")
-			args = append(args, r.Moneda, r.Valor.String(), r.Fecha.Format("2006-01-02 15:04:05"), r.Simbolo, r.FechaValida.Format("2006-01-02 15:04:05"))
-		}
-
-		insertSQL := fmt.Sprintf("INSERT INTO %s %s VALUES %s", tableIdentifier, cols, values.String())
-		if err := db.Exec(insertSQL, args...).Error; err != nil {
-			return err
-		}
-
-		recordsSummary := make([]string, len(nuevas))
-		for i, r := range nuevas {
-			recordsSummary[i] = fmt.Sprintf("%s=%s (FechaValida=%s)", r.Moneda, r.Valor.String(), r.FechaValida.Format("2006-01-02 15:04:05"))
-		}
-		slog.Info("Saved new records", "count", len(nuevas), "records", strings.Join(recordsSummary, "; "))
-	} else if len(nuevas) == 0 {
-		slog.Info("Rates are up to date; no save required")
 	}
 
 	return nil
