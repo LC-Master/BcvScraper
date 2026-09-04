@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"scraperbcv/database"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -23,7 +24,7 @@ type App struct {
 }
 
 const (
-	scrapeMaxAttempts  = 5
+	scrapeMaxAttempts  = 15
 	scrapeBaseDelay    = 5 * time.Second
 	scrapeMaxDelay     = 1 * time.Minute
 	dbConnectBaseDelay = 5 * time.Second
@@ -157,13 +158,58 @@ func runScrapeTask(app *App, trigger string) {
 
 	slog.Info("Scrape cycle started", "trigger", trigger)
 
+	var (
+		bcvDone      bool
+		colombiaDone bool
+	)
+
 	err := withRetry("scrape_and_save", scrapeMaxAttempts, scrapeBaseDelay, scrapeMaxDelay, func() error {
-		tasa, err := scrapeTasaCambio()
-		if err != nil {
-			return err
+		if !bcvDone {
+			bcvCoins, err := scrapeBCV()
+			if err != nil {
+				slog.Error("Failed to scrape BCV", "error", err)
+			} else {
+				saveFailed := false
+				for _, coin := range bcvCoins {
+					if err := database.SaveCoin(app.db, coin); err != nil {
+						slog.Error("Failed to save BCV rate to database", "moneda", coin.Moneda, "error", err)
+						saveFailed = true
+					}
+				}
+				if !saveFailed {
+					bcvDone = true
+					slog.Info("BCV rates successfully obtained and saved")
+				}
+			}
 		}
 
-		return database.SaveTasaCambio(app.db, *tasa)
+		if !colombiaDone {
+			pesos, err := fetchPesosColombia()
+			if err != nil {
+				slog.Error("Failed to fetch Colombia TRM", "error", err)
+			} else {
+				if err := database.SaveCoin(app.db, pesos); err != nil {
+					slog.Error("Failed to save Colombia TRM to database", "error", err)
+				} else {
+					colombiaDone = true
+					slog.Info("Colombia TRM successfully obtained and saved")
+				}
+			}
+		}
+
+		if bcvDone && colombiaDone {
+			return nil
+		}
+
+		var pendientes []string
+		if !bcvDone {
+			pendientes = append(pendientes, "BCV")
+		}
+		if !colombiaDone {
+			pendientes = append(pendientes, "Colombia")
+		}
+
+		return fmt.Errorf("tasas incompletas (pendientes: %s); reintentando", strings.Join(pendientes, ", "))
 	})
 
 	if err != nil {
@@ -171,7 +217,7 @@ func runScrapeTask(app *App, trigger string) {
 		return
 	}
 
-	slog.Info("Scrape cycle completed", "trigger", trigger)
+	slog.Info("Scrape cycle completed: all rates saved", "trigger", trigger)
 }
 
 func connectWithRetry() *gorm.DB {
