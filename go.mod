@@ -1,6 +1,6 @@
 module scraperbcv
 
-go 1.25.0
+go 1.27.1
 
 require (
 	github.com/PuerkitoBio/goquery v1.11.0 // indirect
@@ -44,6 +44,7 @@ require (
 	golang.org/x/text v0.36.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gorm.io/driver/sqlserver v1.6.3 // indirect
 	gorm.io/gorm v1.31.1 // indirect
 )
